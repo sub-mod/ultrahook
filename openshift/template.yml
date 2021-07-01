@@ -1,0 +1,83 @@
+apiVersion: v1
+kind: Template
+metadata:
+  name: ultrahook-secret
+objects:
+- apiVersion: v1
+  kind: Secret
+  metadata:
+    name: ultrahook
+  type: Opaque
+  data:
+    api.key: ${ULTRAHOOK_API_KEY}
+- kind: Secret
+  apiVersion: v1
+  metadata:
+      name: github-secret
+  data:
+      webhooksecret: ${GITHUB_WEBHOOK_SECRET}
+  type: Opaque
+- apiVersion: image.openshift.io/v1
+  kind: ImageStream
+  metadata:
+    name: ultrahook
+  spec:
+    lookupPolicy:
+      local: true
+    tags:
+      - name: latest
+        from:
+          kind: DockerImage
+          name: quay.io/thoth-station/ultrahook:v0.1.0
+        importPolicy: {}
+        referencePolicy:
+          type: Local
+- apiVersion: apps.openshift.io/v1
+  kind: DeploymentConfig
+  metadata:
+    name: ultrahook-ci
+  spec:
+    replicas: 1
+    selector:
+      instance: ultrahook-ci
+    strategy:
+      type: Recreate
+    template:
+      metadata:
+        labels:
+          instance: ultrahook-ci
+      spec:
+        containers:
+          - env:
+              - name: ULTRAHOOK_API_KEY
+                valueFrom:
+                  secretKeyRef:
+                    key: api.key
+                    name: ultrahook
+              - name: ULTRAHOOK_SUBDOMAIN
+                value: ${ULTRAHOOK_SUBDOMAIN}
+              - name: ULTRAHOOK_DESTINATION
+                value: ${ULTRAHOOK_DESTINATION}
+            image: ultrahook
+            imagePullPolicy: Always
+            name: ultrahook-ci
+            ports:
+              - containerPort: 8080
+                protocol: TCP
+            resources:
+              limits:
+                memory: 50Mi
+    test: false
+parameters:
+- name: ULTRAHOOK_API_KEY
+  required: true
+  value: 
+- name: GITHUB_WEBHOOK_SECRET
+  required: true
+  value: 
+- name: ULTRAHOOK_SUBDOMAIN
+  required: true
+  value: buildcontainer
+- name: ULTRAHOOK_DESTINATION
+  required: true
+  value: 

@@ -1,0 +1,66 @@
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ultrahook
+type: Opaque
+data:
+  api.key: ""
+---
+kind: Secret
+apiVersion: v1
+metadata:
+  name: github-secret
+data:
+  webhooksecret: bCU3ZccpEQ3JEUlpyNcA
+type: Opaque
+---
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
+  name: ultrahook
+spec:
+  lookupPolicy:
+    local: true
+  tags:
+    - name: latest
+      from:
+        kind: DockerImage
+        name: quay.io/sub_mod/ultrahook:1.0.1 #quay.io/thoth-station/ultrahook:v0.1.0 #
+      importPolicy: {}
+      referencePolicy:
+        type: Local
+---
+apiVersion: apps.openshift.io/v1
+kind: DeploymentConfig
+metadata:
+  name: ultrahook-ci
+spec:
+  replicas: 1
+  selector:
+    instance: ultrahook-ci
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        instance: ultrahook-ci
+    spec:
+      containers:
+        - env:
+            - name: ULTRAHOOK_API_KEY
+              value: dEnOReDmWAcuFBNpioI7WKkNr1zStqGn
+            - name: ULTRAHOOK_SUBDOMAIN
+              value: buildcontainer
+            - name: ULTRAHOOK_DESTINATION
+              value: http://el-event-listener-lpjiq9-sentient-ci.ai-chiptoolchain-9ca4d14d48413d18ce61b80811ba4308-0000.us-east.containers.appdomain.cloud/
+          image: quay.io/thoth-station/ultrahook:v0.1.0
+          imagePullPolicy: Always
+          name: ultrahook-ci
+          ports:
+            - containerPort: 8080
+              protocol: TCP
+          resources:
+            limits:
+              memory: 50Mi
+  test: false

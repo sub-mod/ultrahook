@@ -1,0 +1,202 @@
+---
+apiVersion: triggers.tekton.dev/v1alpha1
+kind: EventListener
+metadata:
+  name: aicoe-ci-listener
+  namespace: sentient-ci
+  labels:
+    app: aicoe-ci
+spec:
+  serviceAccountName: pipeline
+  triggers:
+    - name: github-pull-request
+      interceptors:
+        - github:
+            # secretRef:
+            #   secretName: github-secret
+            #   secretKey: webhooksecret
+            eventTypes:
+              - pull_request
+        - cel:
+            filter: "body.action in ['opened', 'closed', 'synchronize', 'reopened', 'created']"
+      bindings:
+        - kind: TriggerBinding
+          ref: git-pr-binding
+      template:
+        name: git-pr-template
+    - name: github-pull-request-comment
+      interceptors:
+        - github:
+            # secretRef:
+            #   secretName: github-secret
+            #   secretKey: webhooksecret
+            eventTypes:
+              - issue_comment
+        - cel:
+            filter: "body.comment.body.startsWith('/retest') || body.comment.body.startsWith('/deploy')"
+      bindings:
+        - kind: TriggerBinding
+          ref: git-issue-comment-binding
+      template:
+        name: git-pr-template
+---
+apiVersion: triggers.tekton.dev/v1alpha1
+kind: TriggerBinding
+metadata:
+  name: git-issue-comment-binding
+  labels:
+    app: aicoe-ci
+spec:
+  params:
+  - name: event_action
+    value: $(body.action)
+  - name: pr_number
+    value: $(body.issue.number)
+  - name: pr_repo
+    value: $(body.repository.name)
+  - name: repo_full_name
+    value: $(body.repository.full_name)
+  - name: pr_url
+    value: $(body.issue.html_url)
+  - name: repo_url
+    value: $(body.repository.html_url)
+  - name: pr_comment
+    value: $(body.comment.body)
+  - name: pr_comment_author
+    value: $(body.comment.user.login)
+  - name: pr_comment_author_association
+    value: $(body.comment.author_association)
+  - name: default_branch
+    value: $(body.repository.default_branch)
+
+---
+apiVersion: triggers.tekton.dev/v1alpha1
+kind: TriggerBinding
+metadata:
+  name: git-pr-binding
+  namespace: sentient-ci
+  labels:
+    app: aicoe-ci
+spec:
+  params:
+    - name: event_action
+      value: $(body.action)
+    - name: pr_number
+      value: $(body.number)
+    - name: pr_repo
+      value: $(body.repository.name)
+    - name: repo_full_name
+      value: $(body.repository.full_name)
+    - name: pr_url
+      value: $(body.pull_request.html_url)
+    - name: repo_url
+      value: $(body.repository.html_url)
+    - name: default_branch
+      value: $(body.repository.default_branch)
+---
+apiVersion: triggers.tekton.dev/v1alpha1
+kind: TriggerTemplate
+metadata:
+  name: git-pr-template
+  namespace: sentient-ci
+  labels:
+    app: aicoe-ci
+spec:
+  params:
+    - name: pr_number
+      description: Pull request ID.
+    - name: pr_repo
+      description: The git repository pr was raised to.
+    - name: repo_full_name
+      description: The git repository full name.
+    - name: pr_url
+      description: The pr url.
+    - name: repo_url
+      description: The git repository url.
+    - name: default_branch
+      description: The git repository default branch.
+    - name: event_action
+      description: Action performed on Pull request.
+      default: "DEFAULT"
+    - name: pr_comment
+      description: comment on the pull request.
+      default: "DEFAULT"
+    - name: pr_comment_author
+      description: author of the comment on the pull request.
+      default: "DEFAULT"
+    - name: pr_comment_author_association
+      description: comment author's association.
+      default: "DEFAULT"
+    - name: pipelinerun_name
+      description: pipelinerun associated.
+    - name: git-repo-url
+    - name: pullreq-sha
+    - name: pullreq-action
+    - name: pullreq-number
+    - name: pullreq-repo-full_name
+    - name: pullreq-html-url
+    - name: pullreq-title
+    - name: pullreq-issue-url
+    - name: organisations-url
+    - name: user-type
+  resourcetemplates:
+    - apiVersion: tekton.dev/v1beta1
+      kind: PipelineRun
+      metadata:
+        name: aicoe-pipelinerun-$(uid)
+        labels:
+          app: aicoe-ci
+          project: $(tt.params.pr_repo)
+          component: $(tt.params.pr_repo)-pr-$(tt.params.pr_number)
+      spec:
+        serviceAccountName: pipeline
+        pipelineRef:
+          name: pull-request-pipeline
+        params:
+          - name: event_action
+            value: $(tt.params.event_action)
+          - name: pr_number
+            value: $(tt.params.pr_number)
+          - name: pr_repo
+            value: $(tt.params.pr_repo)
+          - name: repo_url
+            value: $(tt.params.repo_url)
+          - name: repo_full_name
+            value: $(tt.params.repo_full_name)
+          - name: pr_comment
+            value: $(tt.params.pr_comment)
+          - name: pr_comment_author
+            value: $(tt.params.pr_comment_author)
+          - name: pr_comment_author_association
+            value: $(tt.params.pr_comment_author_association)
+          - name: pipelinerun_name
+            value: aicoe-pipelinerun-$(uid)
+---
+apiVersion: tekton.dev/v1beta1
+kind: Pipeline
+metadata:
+  name: pull-request-pipeline
+  labels:
+    app: aicoe-ci
+spec:
+  params:
+    - name: event_action
+      type: string
+
+  tasks:
+    - name: configuration
+      taskRef:
+        name: example-pr-checks
+---
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: example-pr-checks
+  labels:
+    app: aicoe-ci
+spec:
+  steps:
+    - name: items-check
+      image: quay.io/thoth-station/s2i-thoth-ubi8-py36:latest # use $(resources.inputs.s2i-thoth.url) in ocp4.x
+      command: ["/bin/bash"]
+      args: ['-c', 'ls -al']
